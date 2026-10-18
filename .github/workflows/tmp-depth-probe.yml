@@ -1,0 +1,60 @@
+name: tmp-depth-probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: probe
+        shell: python3 {0}
+        run: |
+          import json,time,urllib.request,datetime as dt,gzip,io,csv,socket
+          socket.setdefaulttimeout(15)
+          def get(u):
+              t=time.time()
+              try:
+                  r=urllib.request.urlopen(urllib.request.Request(u,headers={'User-Agent':'myliq-probe'}),timeout=15)
+                  b=r.read(); return r.status,len(b),time.time()-t,b
+              except urllib.error.HTTPError as e:
+                  return e.code,0,time.time()-t,e.read()[:200]
+              except Exception as e:
+                  return 'ERR '+repr(e)[:80],0,time.time()-t,b''
+          print('runner ip:',get('https://api.ipify.org')[3])
+          tests={
+           'coinbase BTC':'https://api.exchange.coinbase.com/products/BTC-USD/book?level=2',
+           'bitstamp TRX':'https://www.bitstamp.net/api/v2/order_book/trxusd/',
+           'gate TRX':'https://api.gateio.ws/api/v4/spot/order_book?currency_pair=TRX_USDT&limit=1000',
+           'kucoin BTC':'https://api.kucoin.com/api/v1/market/orderbook/level2_100?symbol=BTC-USDT',
+           'binance api':'https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=5000',
+           'binance data-api.vision':'https://data-api.binance.vision/api/v3/depth?symbol=BTCUSDT&limit=5000',
+           'binance.us':'https://api.binance.us/api/v3/depth?symbol=BTCUSDT&limit=5000',
+           'okx books-full':'https://www.okx.com/api/v5/market/books-full?instId=BTC-USDT&sz=5000',
+           'bybit spot':'https://api.bybit.com/v5/market/orderbook?category=spot&symbol=BTCUSDT&limit=200',
+           'kraken':'https://api.kraken.com/0/public/Depth?pair=XBTUSD&count=500',
+          }
+          for k,u in tests.items():
+              s,n,t,b=get(u); print(f'{k:28s} status={s} bytes={n} t={t:.2f}s', (b[:120] if s!=200 else ''))
+          # full myliq-style snapshot (same logic as collector_live.py, coinbase + bitstamp TRX)
+          UNIV="BTC ETH SOL XRP BNB DOGE ADA TRX LINK AVAX DOT LTC BCH SUI HYPE UNI AAVE NEAR TON ATOM APT ARB OP ZEC".split()
+          BANDS=(1,2,5,10); rows=[]; t0=time.time()
+          lv=lambda x:[(float(p),float(q)) for p,q,*_ in x]
+          for c in UNIV:
+              for ex,u in ([('bitstamp','https://www.bitstamp.net/api/v2/order_book/trxusd/'),('gate','https://api.gateio.ws/api/v4/spot/order_book?currency_pair=TRX_USDT&limit=1000')] if c=='TRX' else [('coinbase',f'https://api.exchange.coinbase.com/products/{c}-USD/book?level=2'),('gate',f'https://api.gateio.ws/api/v4/spot/order_book?currency_pair={c}_USDT&limit=1000')]):
+                  s,n,t,b=get(u)
+                  if s!=200: print('fail',c,ex,s); continue
+                  try:
+                      d=json.loads(b); bb=sorted(lv(d['bids']),reverse=True); aa=sorted(lv(d['asks']))
+                      if not(bb and aa): print('empty',c,ex); continue
+                  except Exception as e: print('parse',c,ex,repr(e)[:80]); continue
+                  m=(bb[0][0]+aa[0][0])/2; br=(m-bb[-1][0])/m*100; ar=(aa[-1][0]-m)/m*100
+                  r={'ts':dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d %H:%M:00'),'ex':ex,'sym':c,'mid':round(m,8),'br':round(br,2),'ar':round(ar,2)}
+                  for w in BANDS:
+                      r[f'b{w}']=round(sum(p*q for p,q in bb if p>=m*(1-w/100))); r[f'a{w}']=round(sum(p*q for p,q in aa if p<=m*(1+w/100)))
+                  rows.append(r); break
+          el=time.time()-t0
+          f=io.StringIO(); w=csv.DictWriter(f,fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows); txt=f.getvalue()
+          print(f'snapshot {len(rows)}/24 coins in {el:.1f}s; csv bytes={len(txt)} gzip={len(gzip.compress(txt.encode()))}')
+          print(txt)
