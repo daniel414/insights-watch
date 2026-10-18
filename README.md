@@ -61,9 +61,9 @@ Checks three podcast channels every hour (`.github/workflows/podcast-watch.yml`,
 
 ## paper-track
 
-技術形態統計研究，非投資建議。
+Statistical research on candlestick patterns. Not investment advice.
 
-- `.github/workflows/paper-track.yml`：每次 4 小時K收線後約 5 分鐘由 Cloudflare Worker 觸發（UTC 00/04/08/12/16/20 點 :05，即台灣時間 08/12/16/20/00/04 點 :05），也可手動執行，抓 Binance 公開K線（`data-api.binance.vision`，免金鑰），只統計收線後的K線，不對外發送任何東西。漏跑時下一次會自動補處理。
-- `scripts/paper/rules.py`：固定的形態規則與參數，不再修改；檔案的 sha256 會記在每筆紀錄與 `paper/state.json`，檔案變動時程式會拒絕執行。
-- `scripts/paper/paper_track.py`：逐根處理新收線的K，記錄觸發與結果；每次執行都會用整段視窗重播，和批次模擬比對結果是否一致（self-check）。
-- `paper/trades_*.jsonl`（每筆紀錄與目前狀態）、`paper/events_*.jsonl`（逐筆事件，只增不改）、`paper/summary.md`（累計與每週統計）、`paper/weekly.csv`。
+- `.github/workflows/paper-track.yml`: dispatched by the Cloudflare Worker about 5 minutes after each 4-hour candle closes (UTC 00:05/04:05/08:05/12:05/16:05/20:05, i.e. 08:05/12:05/16:05/20:05/00:05/04:05 UTC+8), and can also be run manually. It fetches public Binance candles (`data-api.binance.vision`, no API key), only counts closed candles, and sends nothing anywhere. If a run is missed, the next run catches up automatically.
+- `scripts/paper/rules.py`: the fixed pattern rules and parameters, which are no longer modified. The file's sha256 is recorded in every record and in `paper/state.json`, and the script refuses to run if the file changes.
+- `scripts/paper/paper_track.py`: processes each newly closed candle one at a time and records triggers and outcomes. Every run also replays the whole window and checks that the result matches a batch simulation (self-check).
+- `paper/trades_*.jsonl` (each record and its current status), `paper/events_*.jsonl` (per-event log, append-only), `paper/summary.md` (cumulative and weekly statistics), `paper/weekly.csv`.
