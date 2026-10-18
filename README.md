@@ -1,6 +1,6 @@
 # insights-watch
 
-GitHub Actions watchers for new long-form YouTube episodes (Benjamin Cowen, plus the podcast watcher in `podcast-watch.yml`), each sending new items to a webhook.
+GitHub Actions watchers for new long-form YouTube episodes (Benjamin Cowen, plus the podcast watcher in `podcast-watch.yml`), each sending new items to a webhook. Scheduled runs use GitHub-hosted runners, and GitHub may start them a few minutes late.
 
 ## cowen-watch
 
