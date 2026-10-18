@@ -20,4 +20,5 @@ Checks three podcast channels every hour (`.github/workflows/podcast-watch.yml`,
 
 - `scripts/podcast/podcast_watch.py`: reads each channel's `/videos` tab. Shorts, live/upcoming streams, videos below the minimum length and titles marked as clips/trailers are skipped.
 - `state/podcast-seen.json`: episode IDs per show. A show that is not in the state yet is seeded with all current episodes and nothing is sent. An episode is marked seen only after the webhook returns 2xx.
-- Manual run with `test=true` sends the latest episode of each show with `test: true` and does not change the state.
+- Manual run with `test=true` sends the latest episode of each show with `test: true` and does not change the state. `dry_run=true` only prints what would be sent.
+- `published` comes from the watch page, then the public player endpoint, then an estimate from the `/videos` tab's relative age ("3 hours ago"); `published_source` says which (`watch`, `player`, `approx`). YouTube often bot-walls GitHub runners, so the receiver should fill the exact publish time itself.
