@@ -1,0 +1,58 @@
+# Podcast new long-episode watcher (All-In, a16z, Lex Fridman) -> POSTs a batch of new episodes to a
+# webhook (URL/key in repo secrets). Free: public repo on GitHub-hosted runners + public YouTube pages.
+name: podcast-watch
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "test mode: POST the latest episode of each show with test:true, state untouched"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: podcast-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/podcast
+            state
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Mask secrets
+        env:
+          U: ${{ secrets.COWEN_WEBHOOK_URL }}
+          K: ${{ secrets.COWEN_WEBHOOK_KEY }}
+        run: |
+          [ -n "$U" ] && echo "::add-mask::$U"
+          [ -n "$K" ] && echo "::add-mask::$K"
+          true
+      - name: Check for new episodes
+        env:
+          COWEN_WEBHOOK_URL: ${{ secrets.COWEN_WEBHOOK_URL }}
+          COWEN_WEBHOOK_KEY: ${{ secrets.COWEN_WEBHOOK_KEY }}
+          TEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.test && 'true' || 'false' }}
+        run: python scripts/podcast/podcast_watch.py
+      - name: Commit state
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.test) }}
+        run: |
+          git config user.name "podcast-watch[bot]"
+          git config user.email "podcast-watch@users.noreply.github.com"
+          git add state/podcast-seen.json 2>/dev/null || true
+          if git diff --cached --quiet; then echo "state unchanged"; exit 0; fi
+          git commit -m "podcast-watch: update seen state [skip ci]"
+          for i in 1 2 3 4 5; do
+            git pull --rebase --quiet origin main && git push origin HEAD:main && exit 0
+            sleep $((i*5))
+          done
+          echo "push failed"; exit 1
