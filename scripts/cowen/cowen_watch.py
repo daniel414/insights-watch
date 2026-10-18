@@ -10,9 +10,12 @@ Each new candidate is double-checked on its watch page (skip upcoming / live-now
 Env: COWEN_WEBHOOK_URL, COWEN_WEBHOOK_KEY (never printed), TEST_MODE (true/false), VIDEO_ID (optional).
 State: state/cowen-seen.json (only modified in normal mode; a video is marked seen only after a 2xx POST).
 """
-import json, os, re, sys, time, urllib.request, urllib.error
+import json, os, re, sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from common.yt import DUR_RE, http_get, mask_secrets, now_utc, post_webhook, walk  # noqa: E402
 
 CHANNEL_ID = "UCRvqjQPSeaWn-uEx-w0XOIg"   # @benjaminjcowen
 VIDEOS_URL = "https://www.youtube.com/@benjaminjcowen/videos"
@@ -20,46 +23,7 @@ RSS_URL = f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNEL_ID}"
 STATE = os.path.join(os.path.dirname(__file__), "..", "..", "state", "cowen-seen.json")
 SEED_EXTRA = ["H_JhpNaRPl8", "qWXGEl-ojx4", "-eKtrrN5P48", "se6UlLbDTEo",
               "aEd5onhPxUs", "FVcHFIPVI40", "s4U8s754p9w"]
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
 MAX_POST_PER_RUN = 3
-DUR_RE = re.compile(r"^\d{1,2}(:\d{2}){1,2}$")
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):
-        return None
-
-
-def http_get(url, tries=3, no_redirect=False):
-    opener = urllib.request.build_opener(NoRedirect) if no_redirect else urllib.request.build_opener()
-    last = None
-    for i in range(tries):
-        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9",
-                                                   "Cookie": "CONSENT=YES+1; SOCS=CAI"})
-        try:
-            with opener.open(req, timeout=20) as r:
-                return r.status, r.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            if no_redirect and e.code in (301, 302, 303, 307, 308):
-                return e.code, ""
-            last = e
-            if e.code == 404 and no_redirect:
-                return 404, ""
-        except Exception as e:  # noqa
-            last = e
-        time.sleep(2 ** i)
-    raise RuntimeError(f"GET failed {url}: {last}")
-
-
-def walk(o, key, out):
-    if isinstance(o, dict):
-        if key in o:
-            out.append(o[key])
-        for v in o.values():
-            walk(v, key, out)
-    elif isinstance(o, list):
-        for x in o:
-            walk(x, key, out)
 
 
 def from_videos_page():
@@ -134,10 +98,6 @@ def rss_published(vid):
         return ""
 
 
-def now_utc():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def oembed_title(vid):
     try:
         _, txt = http_get(f"https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v={vid}", tries=2)
@@ -147,19 +107,7 @@ def oembed_title(vid):
 
 
 def post(payload):
-    url = os.environ["COWEN_WEBHOOK_URL"]
-    key = os.environ["COWEN_WEBHOOK_KEY"]
-    body = json.dumps(payload, ensure_ascii=False).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "Content-Type": "application/json", "Authorization": f"Bearer {key}", "User-Agent": "cowen-watch-gha"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            code = r.status
-    except urllib.error.HTTPError as e:
-        code = e.code
-    except Exception as e:  # noqa
-        print(f"  POST error: {type(e).__name__}")
-        code = 0
+    code = post_webhook(payload, "cowen-watch-gha")
     print(f"  webhook POST video_id={payload['video_id']} test={payload['test']} -> HTTP {code}")
     return code
 
@@ -190,15 +138,6 @@ def get_candidates():
     vids = from_rss()
     print(f"source=RSS, {len(vids)} items")
     return vids
-
-
-def mask_secrets():
-    # Belt and braces: GitHub already masks secrets, but register them explicitly too.
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        for name in ("COWEN_WEBHOOK_URL", "COWEN_WEBHOOK_KEY"):
-            val = os.environ.get(name, "")
-            if val:
-                print(f"::add-mask::{val}")
 
 
 def main():

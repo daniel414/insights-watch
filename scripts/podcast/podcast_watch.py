@@ -14,8 +14,11 @@ State: state/podcast-seen.json, per show. A show missing from state is seeded wi
 listed and nothing is posted for it. Episodes are marked seen only after a 2xx POST.
 Test mode: POSTs the latest eligible episode of each show with test=true; state untouched.
 """
-import html as htmlmod, json, os, re, sys, time, urllib.request, urllib.error
+import html as htmlmod, json, os, re, sys, time, urllib.request
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from common.yt import DUR_RE, UA, http_get, mask_secrets, now_utc, post_webhook, walk  # noqa: E402
 
 SHOWS = [
     # key, display name, handle, channel id, minimum duration (minutes)
@@ -24,35 +27,8 @@ SHOWS = [
     {"key": "lexfridman", "show": "Lex Fridman", "handle": "@lexfridman", "channel_id": "UCSHZKyawb77ixDdsGog4iWA", "min_min": 20},
 ]
 STATE = os.path.join(os.path.dirname(__file__), "..", "..", "state", "podcast-seen.json")
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
 MAX_PER_POST = 5
-DUR_RE = re.compile(r"^\d{1,2}(:\d{2}){1,2}$")
 CLIP_RE = re.compile(r"(#shorts\b|\bclip\b|\btrailer\b|\bteaser\b)", re.I)
-
-
-def http_get(url, tries=3):
-    last = None
-    for i in range(tries):
-        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9",
-                                                   "Cookie": "CONSENT=YES+1; SOCS=CAI"})
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                return r.status, r.read().decode("utf-8", "replace")
-        except Exception as e:  # noqa
-            last = e
-        time.sleep(2 ** i)
-    raise RuntimeError(f"GET failed {url}: {last}")
-
-
-def walk(o, key, out):
-    if isinstance(o, dict):
-        if key in o:
-            out.append(o[key])
-        for v in o.values():
-            walk(v, key, out)
-    elif isinstance(o, list):
-        for x in o:
-            walk(x, key, out)
 
 
 def dur_seconds(t):
@@ -155,10 +131,6 @@ def watch_info(vid):
     return info
 
 
-def now_utc():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def episode(show, v, info):
     pub, src = info["published"], info["published_source"]
     if not pub:
@@ -170,20 +142,8 @@ def episode(show, v, info):
 
 
 def post(episodes, test):
-    url = os.environ["COWEN_WEBHOOK_URL"]
-    key = os.environ["COWEN_WEBHOOK_KEY"]
     payload = {"kind": "podcast", "episodes": episodes, "detected_at": now_utc(), "test": test}
-    body = json.dumps(payload, ensure_ascii=False).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "Content-Type": "application/json", "Authorization": f"Bearer {key}", "User-Agent": "podcast-watch-gha"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            code = r.status
-    except urllib.error.HTTPError as e:
-        code = e.code
-    except Exception as e:  # noqa
-        print(f"  POST error: {type(e).__name__}")
-        code = 0
+    code = post_webhook(payload, "podcast-watch-gha")
     print(f"  webhook POST episodes={len(episodes)} test={test} -> HTTP {code}")
     return code
 
@@ -203,14 +163,6 @@ def save_state(s):
     with open(STATE, "w") as f:
         json.dump(s, f, indent=2, ensure_ascii=False)
         f.write("\n")
-
-
-def mask_secrets():
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        for name in ("COWEN_WEBHOOK_URL", "COWEN_WEBHOOK_KEY"):
-            val = os.environ.get(name, "")
-            if val:
-                print(f"::add-mask::{val}")
 
 
 def main():

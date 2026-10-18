@@ -17,6 +17,23 @@ The workflows have no GitHub `schedule:` trigger, because GitHub's scheduled run
 - A failed dispatch is logged by the Worker and not retried; the next cron run tries again. Each workflow has its own `concurrency` group, and the watchers dedupe through `state/`, so an extra or overlapping run is harmless.
 - Manual runs still work from the Actions tab (Run workflow) or with `gh workflow run <file>`, including the `test` / `video_id` / `dry_run` inputs.
 
+
+## Files
+
+```
+.github/workflows/   cowen-watch.yml, podcast-watch.yml, paper-track.yml (workflow_dispatch only)
+scripts/common/yt.py shared by the two watchers: YouTube GET helper (headers, retries, no-redirect
+                     Shorts check), JSON walker, duration regex, UTC timestamp, secret masking,
+                     webhook POST transport
+scripts/cowen/       cowen_watch.py
+scripts/podcast/     podcast_watch.py
+scripts/paper/       paper_track.py, rules.py (standalone, does not use scripts/common)
+state/               cowen-seen.json, podcast-seen.json (dedupe state, committed by the workflows)
+paper/               paper-track records and summary
+```
+
+Each watcher keeps its own payload format, state file and log lines; only identical helpers live in `scripts/common/`. The watcher workflows check out `scripts/common` together with their own script folder.
+
 ## cowen-watch
 
 Checks Benjamin Cowen's YouTube channel (`@benjaminjcowen`, channel id `UCRvqjQPSeaWn-uEx-w0XOIg`) every 5 minutes and sends new **long-form** videos (no Shorts, no live/upcoming streams) to a webhook.
