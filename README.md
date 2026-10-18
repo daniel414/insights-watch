@@ -1,4 +1,8 @@
-# cowen-watch
+# insights-watch
+
+GitHub Actions watchers for new long-form YouTube episodes (Benjamin Cowen, plus the podcast watcher in `podcast-watch.yml`), each sending new items to a webhook.
+
+## cowen-watch
 
 Checks Benjamin Cowen's YouTube channel (`@benjaminjcowen`, channel id `UCRvqjQPSeaWn-uEx-w0XOIg`) every 5 minutes with GitHub Actions and sends new **long-form** videos (no Shorts, no live/upcoming streams) to a webhook.
 
