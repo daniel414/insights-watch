@@ -2,8 +2,6 @@
 # webhook (URL/key in repo secrets). Free: public repo on GitHub-hosted runners + public YouTube pages.
 name: podcast-watch
 on:
-  schedule:
-    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       test:

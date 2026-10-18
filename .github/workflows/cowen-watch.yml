@@ -2,8 +2,6 @@
 # Free: public repo on GitHub-hosted runners + public YouTube pages/RSS.
 name: cowen-watch
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       test:

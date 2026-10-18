@@ -2,8 +2,6 @@
 # Runs ~5 min after each 4h close (UTC 00/04/08/12/16/20 = Taipei 08/12/16/20/00/04). Missed runs are caught up next run.
 name: paper-track
 on:
-  schedule:
-    - cron: "5 0,4,8,12,16,20 * * *"
   workflow_dispatch:
 permissions:
   contents: write
