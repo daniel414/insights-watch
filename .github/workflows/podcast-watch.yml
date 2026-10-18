@@ -10,6 +10,10 @@ on:
         description: "test mode: POST the latest episode of each show with test:true, state untouched"
         type: boolean
         default: false
+      dry_run:
+        description: "dry run: resolve and print the latest episode per show, no POST, state untouched"
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -42,9 +46,10 @@ jobs:
           COWEN_WEBHOOK_URL: ${{ secrets.COWEN_WEBHOOK_URL }}
           COWEN_WEBHOOK_KEY: ${{ secrets.COWEN_WEBHOOK_KEY }}
           TEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.test && 'true' || 'false' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         run: python scripts/podcast/podcast_watch.py
       - name: Commit state
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.test) }}
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.test || inputs.dry_run)) }}
         run: |
           git config user.name "podcast-watch[bot]"
           git config user.email "podcast-watch@users.noreply.github.com"

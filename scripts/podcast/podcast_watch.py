@@ -7,7 +7,9 @@ Only items with a real duration badge are kept (skips LIVE / UPCOMING / PREMIERE
 must be at least the show's minimum (filters clips / trailers). New candidates are double-checked on
 their watch page (skip upcoming / live-now).
 
-Env: COWEN_WEBHOOK_URL, COWEN_WEBHOOK_KEY (never printed), TEST_MODE (true/false).
+Env: COWEN_WEBHOOK_URL, COWEN_WEBHOOK_KEY (never printed), TEST_MODE, DRY_RUN (true/false).
+published: watch page -> public player endpoint -> approximate from the /videos tab's relative age
+(published_source = watch | player | approx | none).
 State: state/podcast-seen.json, per show. A show missing from state is seeded with everything currently
 listed and nothing is posted for it. Episodes are marked seen only after a 2xx POST.
 Test mode: POSTs the latest eligible episode of each show with test=true; state untouched.
@@ -85,7 +87,11 @@ def list_videos(show):
         durs = [b.get("text", "") for b in badges if isinstance(b, dict) and DUR_RE.match(b.get("text", "") or "")]
         secs = dur_seconds(durs[0]) if durs else 0
         eligible = secs >= show["min_min"] * 60 and not CLIP_RE.search(title)
-        vids.append({"video_id": vid, "title": title, "seconds": secs, "eligible": eligible})
+        parts = []
+        walk(v, "metadataParts", parts)
+        rel = next((p.get("text", {}).get("content", "") for mp in parts for p in mp
+                    if isinstance(p, dict) and p.get("text", {}).get("content", "").endswith(" ago")), "")
+        vids.append({"video_id": vid, "title": title, "seconds": secs, "eligible": eligible, "relative": rel})
     if not vids:
         raise RuntimeError("no videos parsed from /videos page")
     return vids
@@ -98,16 +104,49 @@ def to_utc(s):
         return s
 
 
+def innertube_published(vid):
+    """Public player endpoint (no key); returns microformat publishDate even when the watch page is walled."""
+    body = json.dumps({"context": {"client": {"clientName": "WEB", "clientVersion": "2.20261015.00.00",
+                                              "hl": "en", "gl": "US"}}, "videoId": vid}).encode()
+    req = urllib.request.Request("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", data=body,
+                                 method="POST", headers={"Content-Type": "application/json", "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            txt = r.read().decode("utf-8", "replace")
+    except Exception as e:  # noqa
+        print(f"  player endpoint failed for {vid}: {type(e).__name__}")
+        return ""
+    m = re.search(r'"(?:publishDate|uploadDate)":"([^"]+)"', txt)
+    return to_utc(m.group(1)) if m else ""
+
+
+def approx_from_relative(rel):
+    """'3d ago' -> approximate UTC timestamp (used only when both exact sources fail)."""
+    m = re.match(r"(\d+)\s*(minute|min|hour|hr|day|d|week|wk|w|month|mo)s?\b", rel or "")
+    if not m:
+        return ""
+    n, u = int(m.group(1)), m.group(2)
+    sec = {"minute": 60, "min": 60, "hour": 3600, "hr": 3600, "day": 86400, "d": 86400,
+           "week": 604800, "wk": 604800, "w": 604800, "month": 2592000, "mo": 2592000}[u]
+    return datetime.fromtimestamp(time.time() - n * sec, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def watch_info(vid):
-    info = {"published": "", "upcoming": False, "live_now": False, "title": ""}
+    info = {"published": "", "published_source": "", "upcoming": False, "live_now": False, "title": ""}
+    page = ""
     try:
         _, page = http_get(f"https://www.youtube.com/watch?v={vid}", tries=2)
     except Exception as e:
         print(f"  watch page failed for {vid}: {type(e).__name__}")
-        return info
-    m = re.search(r'"(?:publishDate|uploadDate)":"([^"]+)"', page)
+    m = re.search(r'"(?:publishDate|uploadDate)":"([^"]+)"', page) or \
+        re.search(r'itemprop="(?:datePublished|uploadDate)" content="([^"]+)"', page)
     if m:
-        info["published"] = to_utc(m.group(1))
+        info["published"], info["published_source"] = to_utc(m.group(1)), "watch"
+    else:
+        print(f"  watch page had no date for {vid} (len={len(page)}, bot_wall={'not a bot' in page})")
+        p = innertube_published(vid)
+        if p:
+            info["published"], info["published_source"] = p, "player"
     info["upcoming"] = '"isUpcoming":true' in page
     info["live_now"] = bool(re.search(r'"isLiveNow":true', page))
     m = re.search(r'<meta name="title" content="([^"]*)"', page)
@@ -121,9 +160,13 @@ def now_utc():
 
 
 def episode(show, v, info):
+    pub, src = info["published"], info["published_source"]
+    if not pub:
+        pub, src = approx_from_relative(v.get("relative", "")), "approx"
+    print(f"  published={pub or '-'} source={src or 'none'}")
     return {"show": show["show"], "video_id": v["video_id"], "title": v["title"] or info["title"],
-            "url": f"https://www.youtube.com/watch?v={v['video_id']}", "published": info["published"],
-            "duration_s": v["seconds"]}
+            "url": f"https://www.youtube.com/watch?v={v['video_id']}", "published": pub,
+            "published_source": src or "none", "duration_s": v["seconds"]}
 
 
 def post(episodes, test):
@@ -173,6 +216,10 @@ def mask_secrets():
 def main():
     mask_secrets()
     test = os.environ.get("TEST_MODE", "false").lower() == "true"
+    dry = os.environ.get("DRY_RUN", "false").lower() == "true"
+    if dry:
+        test = True
+        print("DRY RUN: latest episode per show is resolved and printed; no POST, state untouched")
     state = load_state()
     state.setdefault("shows", {})
     changed, rc, pending = False, 0, []
@@ -216,6 +263,8 @@ def main():
         batch.append((show, v, episode(show, v, info)))
         print(f"{'TEST' if test else 'NEW'}: [{show['key']}] {v['video_id']} | {v['title'][:70]}")
 
+    if batch and dry:
+        return rc
     if batch:
         code = post([b[2] for b in batch], test)
         if 200 <= code < 300:
