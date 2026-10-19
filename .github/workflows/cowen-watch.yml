@@ -54,7 +54,7 @@ jobs:
         run: |
           git config user.name "cowen-watch[bot]"
           git config user.email "cowen-watch@users.noreply.github.com"
-          git add state/cowen-seen.json 2>/dev/null || true
+          for f in state/cowen-seen.json state/cowen-health.json; do [ -f "$f" ] && git add "$f"; done; true
           if git diff --cached --quiet; then echo "state unchanged"; exit 0; fi
           git commit -m "cowen-watch: update seen state [skip ci]"
           for i in 1 2 3 4 5; do

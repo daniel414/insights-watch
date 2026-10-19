@@ -18,7 +18,7 @@ import html as htmlmod, json, os, re, sys, time, urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from common.yt import DUR_RE, UA, http_get, mask_secrets, now_utc, post_webhook, walk  # noqa: E402
+from common.yt import DUR_RE, HEALTH_FAIL_LIMIT, UA, Health, fetch_initial_data, http_get, mask_secrets, now_utc, post_webhook, walk  # noqa: E402
 
 SHOWS = [
     # key, display name, handle, channel id, minimum duration (minutes)
@@ -27,6 +27,7 @@ SHOWS = [
     {"key": "lexfridman", "show": "Lex Fridman", "handle": "@lexfridman", "channel_id": "UCSHZKyawb77ixDdsGog4iWA", "min_min": 20},
 ]
 STATE = os.path.join(os.path.dirname(__file__), "..", "..", "state", "podcast-seen.json")
+HEALTH = os.path.join(os.path.dirname(__file__), "..", "..", "state", "podcast-health.json")
 MAX_PER_POST = 5
 CLIP_RE = re.compile(r"(#shorts\b|\bclip\b|\btrailer\b|\bteaser\b)", re.I)
 
@@ -40,13 +41,9 @@ def dur_seconds(t):
 
 def list_videos(show):
     """Newest first. Each: video_id, title, seconds (0 if no duration badge), eligible."""
-    _, page = http_get(f"https://www.youtube.com/{show['handle']}/videos")
-    m = re.search(r"var ytInitialData = (\{.*?\});</script>", page, re.S)
-    if not m:
-        raise RuntimeError("ytInitialData not found on /videos page")
+    page, data = fetch_initial_data(f"https://www.youtube.com/{show['handle']}/videos")
     if show["channel_id"] not in page:
         raise RuntimeError("unexpected channel on /videos page")
-    data = json.loads(m.group(1))
     items = []
     walk(data, "lockupViewModel", items)
     vids = []
@@ -175,14 +172,19 @@ def main():
     state = load_state()
     state.setdefault("shows", {})
     changed, rc, pending = False, 0, []
+    health = Health(HEALTH)
 
     for show in SHOWS:
         try:
             vids = list_videos(show)
         except Exception as e:
             print(f"[{show['key']}] listing failed: {e}")
-            rc = 1
+            n = health.fail(show["key"], e)
+            if n >= HEALTH_FAIL_LIMIT:
+                print(f"::error::{show['key']}: listing failed {n} runs in a row")
+                rc = 1
             continue
+        health.ok(show["key"])
         elig = [v for v in vids if v["eligible"]]
         print(f"[{show['key']}] {len(vids)} items, {len(elig)} eligible; latest: "
               + (f"{elig[0]['video_id']} {elig[0]['seconds'] // 60}min | {elig[0]['title'][:60]}" if elig else "-"))
@@ -231,6 +233,8 @@ def main():
 
     if changed and not test:
         save_state(state)
+    if not test:
+        health.save()
     return rc
 
 

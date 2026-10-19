@@ -15,23 +15,25 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from common.yt import DUR_RE, http_get, mask_secrets, now_utc, post_webhook, walk  # noqa: E402
+from common.yt import DUR_RE, HEALTH_FAIL_LIMIT, Health, fetch_initial_data, http_get, mask_secrets, now_utc, post_webhook, walk  # noqa: E402
 
 CHANNEL_ID = "UCRvqjQPSeaWn-uEx-w0XOIg"   # @benjaminjcowen
 VIDEOS_URL = "https://www.youtube.com/@benjaminjcowen/videos"
 RSS_URL = f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNEL_ID}"
 STATE = os.path.join(os.path.dirname(__file__), "..", "..", "state", "cowen-seen.json")
+HEALTH = os.path.join(os.path.dirname(__file__), "..", "..", "state", "cowen-health.json")
+SKIP_TITLE_PREFIXES = ("nfa live",)   # livestream replays are not new videos
+
+
+def skip_title(title):
+    return (title or "").strip().lower().startswith(SKIP_TITLE_PREFIXES)
 SEED_EXTRA = ["H_JhpNaRPl8", "qWXGEl-ojx4", "-eKtrrN5P48", "se6UlLbDTEo",
               "aEd5onhPxUs", "FVcHFIPVI40", "s4U8s754p9w"]
 MAX_POST_PER_RUN = 3
 
 
 def from_videos_page():
-    st, html = http_get(VIDEOS_URL)
-    m = re.search(r"var ytInitialData = (\{.*?\});</script>", html, re.S)
-    if not m:
-        raise RuntimeError("ytInitialData not found on /videos page")
-    data = json.loads(m.group(1))
+    _, data = fetch_initial_data(VIDEOS_URL)
     items = []
     walk(data, "lockupViewModel", items)
     vids = []
@@ -47,7 +49,7 @@ def from_videos_page():
         walk(v, "thumbnailBadgeViewModel", badges)
         texts = [b.get("text", "") for b in badges if isinstance(b, dict)]
         is_long_vod = any(DUR_RE.match(t or "") for t in texts)
-        vids.append({"video_id": vid, "title": title, "eligible": is_long_vod, "badges": texts})
+        vids.append({"video_id": vid, "title": title, "eligible": is_long_vod and not skip_title(title), "badges": texts})
     if not vids:
         raise RuntimeError("no videos parsed from /videos page")
     return vids
@@ -63,7 +65,7 @@ def from_rss():
         title = e.findtext("a:title", namespaces=ns) or ""
         pub = e.findtext("a:published", namespaces=ns) or ""
         code, _ = http_get(f"https://www.youtube.com/shorts/{vid}", tries=2, no_redirect=True)
-        vids.append({"video_id": vid, "title": title, "published": pub, "eligible": code != 200,
+        vids.append({"video_id": vid, "title": title, "published": pub, "eligible": code != 200 and not skip_title(title),
                      "badges": [f"shorts-check:{code}"]})
     return vids
 
@@ -135,7 +137,12 @@ def get_candidates():
         return vids
     except Exception as e:
         print(f"/videos page failed ({e}); falling back to RSS")
-    vids = from_rss()
+    try:
+        vids = from_rss()
+    except Exception as e:
+        print(f"RSS fallback failed ({e}); retrying in 5s")
+        import time; time.sleep(5)
+        vids = from_rss()
     print(f"source=RSS, {len(vids)} items")
     return vids
 
@@ -159,7 +166,18 @@ def main():
         code = post(payload)
         return 0 if 200 <= code < 300 else 1
 
-    vids = get_candidates()
+    health = Health(HEALTH)
+    try:
+        vids = get_candidates()
+    except Exception as e:
+        n = health.fail("cowen", e)
+        health.save()
+        if n >= HEALTH_FAIL_LIMIT:
+            print(f"::error::cowen: both /videos and RSS failed {n} runs in a row")
+            return 1
+        return 0
+    health.ok("cowen")
+    health.save()
     for v in vids[:10]:
         print(f"  {v['video_id']} eligible={v['eligible']} badges={v['badges']} | {v['title'][:70]}")
     state = load_state()
@@ -181,6 +199,9 @@ def main():
     rc = 0
     for v in new[:MAX_POST_PER_RUN]:
         info = watch_info(v["video_id"])
+        if skip_title(info["title"]):
+            print(f"  skip {v['video_id']} (livestream replay: {info['title'][:40]})")
+            continue
         if info["upcoming"] or info["live_now"]:
             print(f"  skip {v['video_id']} (upcoming/live now), will retry later")
             continue
