@@ -1,0 +1,10 @@
+{
+  "sources": {
+    "lexfridman": {
+      "consecutive_failures": 1,
+      "last_failure": "2026-10-23T15:15:30Z",
+      "last_error": "no videos parsed from /videos page"
+    }
+  },
+  "updated": "2026-10-23T15:15:30Z"
+}
