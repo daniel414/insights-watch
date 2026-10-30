@@ -1,2 +1,3 @@
 {"t": "2026-10-18 12:00", "tf": "4h", "ev": "start", "rules_sha256": "bf5db37808b46b5da3db9eeac91f87aee4e3059e649c9fae5b9daf76426b45cc"}
 {"t": "2026-10-30 00:00", "tf": "4h", "side": 1, "big_move": -1, "close": 81777.74, "stop": 79782.0, "ev": "trigger", "id": "4h-1793275200000", "type": "reversal", "target": 85769.22000000002}
+{"t": "2026-10-30 08:00", "tf": "4h", "ev": "exit", "id": "4h-1793275200000", "why": "stop", "R": -1.025}
