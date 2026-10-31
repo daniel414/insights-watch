@@ -1,18 +1,18 @@
 {
  "4h": {
   "start_open_ms": 1792281600000,
-  "last_open_ms": 1793376000000,
+  "last_open_ms": 1793390400000,
   "busy_until_ms": 1793304000000,
   "rules_sha256": "bf5db37808b46b5da3db9eeac91f87aee4e3059e649c9fae5b9daf76426b45cc",
   "source": "https://data-api.binance.vision",
-  "last_run_tw": "2026-10-31 04:05"
+  "last_run_tw": "2026-10-31 08:05"
  },
  "1d": {
   "start_open_ms": 1792195200000,
-  "last_open_ms": 1793232000000,
+  "last_open_ms": 1793318400000,
   "busy_until_ms": -1,
   "rules_sha256": "bf5db37808b46b5da3db9eeac91f87aee4e3059e649c9fae5b9daf76426b45cc",
   "source": "https://data-api.binance.vision",
-  "last_run_tw": "2026-10-31 04:05"
+  "last_run_tw": "2026-10-31 08:05"
  }
 }
