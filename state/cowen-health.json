@@ -1,0 +1,10 @@
+{
+  "sources": {
+    "cowen": {
+      "consecutive_failures": 1,
+      "last_failure": "2026-11-06T00:40:45Z",
+      "last_error": "GET failed https://www.youtube.com/feeds/videos.xml?channel_id=UCRvqjQPSeaWn-uEx-w0XOIg: HTTP Error 404: Not Found"
+    }
+  },
+  "updated": "2026-11-06T00:40:45Z"
+}
